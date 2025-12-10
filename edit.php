@@ -73,7 +73,23 @@ if(isset($_POST['update'])) {
     if ($update_stmt->execute()) {
         $user_id_to_update = $row['user_id'];
         
-        if(!empty($user_id_to_update)) {
+        // --- Password Update Logic ---
+        if (!empty($_POST['new_password'])) {
+            if ($_POST['new_password'] === $_POST['confirm_password']) {
+                $new_hashed_password = password_hash($_POST['new_password'], PASSWORD_DEFAULT);
+                
+                // Prepared statement to update the password in the 'users' table
+                $pw_stmt = $conn->prepare("UPDATE users SET password=? WHERE user_id=?");
+                $pw_stmt->bind_param("si", $new_hashed_password, $user_id_to_update);
+                $pw_stmt->execute();
+                $pw_stmt->close();
+            } else {
+                $error = "New passwords do not match.";
+                // We should stop execution here and show the error
+            }
+        }
+        
+        if(!empty($user_id_to_update) && !isset($error)) {
             // FIX: Prepared Statement for User Role Update
             $u_stmt = $conn->prepare("UPDATE users SET role=? WHERE user_id=?");
             $u_stmt->bind_param("si", $role, $user_id_to_update);
@@ -83,8 +99,11 @@ if(isset($_POST['update'])) {
                 $_SESSION['role'] = $role;
             }
         }
-        header("Location: index.php");
-        exit();
+        
+        if (!isset($error)) {
+            header("Location: index.php");
+            exit();
+        }
     } else {
         $error = "Error updating record: " . $conn->error;
     }
@@ -111,6 +130,9 @@ if(isset($_POST['update'])) {
         .current-image { width: 100px; height: 100px; object-fit: cover; border-radius: 50%; border: 3px solid #eee; margin-bottom: 10px; }
         .no-image { width: 100px; height: 100px; background: #eee; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #aaa; font-weight: bold; margin-bottom: 10px; }
         .readonly-input { background-color: #e9ecef; cursor: not-allowed; color: #6c757d; }
+        .password-container { position: relative; }
+        .password-container input { padding-right: 40px; }
+        .toggle-password { position: absolute; top: 50%; right: 10px; transform: translateY(-50%); cursor: pointer; color: #777; }
     </style>
 </head>
 <body>
@@ -176,9 +198,46 @@ if(isset($_POST['update'])) {
             <label>Bio / About</label>
             <textarea name="bio" rows="3" placeholder="Brief description..."><?php echo htmlspecialchars($row['bio'] ?? ''); ?></textarea>
 
+            <hr style="margin: 20px 0; border: 1px solid #f0f0f0;">
+
+            <label>New Password</label>
+            <div class="password-container">
+                <input type="password" name="new_password" id="new_password" placeholder="Enter new password (optional)">
+                <span class="toggle-password" onclick="togglePasswordVisibility('new_password', 'new_password_icon')">
+                    <svg id="new_password_icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-eye-fill" viewBox="0 0 16 16">
+                        <path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/>
+                        <path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8zm8 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/>
+                    </svg>
+                </span>
+            </div>
+
+            <label>Confirm New Password</label>
+            <div class="password-container">
+                <input type="password" name="confirm_password" id="confirm_password" placeholder="Confirm new password">
+                <span class="toggle-password" onclick="togglePasswordVisibility('confirm_password', 'confirm_password_icon')">
+                    <svg id="confirm_password_icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-eye-fill" viewBox="0 0 16 16">
+                        <path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/>
+                        <path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8zm8 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/>
+                    </svg>
+                </span>
+            </div>
+            
             <input type="submit" name="update" value="Save Profile Changes">
             <a href="index.php" class="cancel-btn">Cancel</a>
         </form>
     </div>
+    <script>
+        function togglePasswordVisibility(passwordId, iconId) {
+            var passwordInput = document.getElementById(passwordId);
+            var eyeIcon = document.getElementById(iconId);
+            if (passwordInput.type === "password") {
+                passwordInput.type = "text";
+                eyeIcon.innerHTML = '<path d="M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8zM1.173 8a13.133 13.133 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5c2.12 0 3.879 1.168 5.168 2.457A13.133 13.133 0 0 1 14.828 8c-.058.087-.122.183-.195.288-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.12 12.5 8 12.5c-2.12 0-3.879-1.168-5.168-2.457A13.134 13.134 0 0 1 1.172 8z"/><path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0z"/>';
+            } else {
+                passwordInput.type = "password";
+                eyeIcon.innerHTML = '<path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/><path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8zm8 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/>';
+            }
+        }
+    </script>
 </body>
 </html>

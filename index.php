@@ -159,8 +159,6 @@ if ($profile_result && $profile_result->num_rows > 0) {
                 <li><a href="index.php?tab=clients" class="<?php echo $tab == 'clients' ? 'active' : ''; ?>">Registered Clients</a></li>
                 <li><a href="index.php?tab=visitors" class="<?php echo $tab == 'visitors' ? 'active' : ''; ?>">Registered Visitors</a></li>
             <?php endif; ?>
-            <div class="sidebar-header">Account</div>
-            <li><a href="logout.php">Logout</a></li>
         </ul>
     </div>
 
