@@ -6,22 +6,33 @@ if(isset($_POST['login'])) {
     $email = $_POST['email'];
     $password = $_POST['password']; 
 
-    // Fetch user AND role
-    $sql = "SELECT * FROM users WHERE email='$email' AND password='$password'";
-    $result = $conn->query($sql);
+    // FIX: Use Prepared Statement
+    $stmt = $conn->prepare("SELECT user_id, email, password, role FROM users WHERE email=?");
+    $stmt->bind_param("s", $email);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
     if ($result->num_rows > 0) {
         $row = $result->fetch_assoc();
-        $_SESSION['user_id'] = $row['user_id'];
-        $_SESSION['email'] = $row['email'];
-        $_SESSION['role'] = $row['role']; // Save role to session
-        header("Location: index.php");
+        
+        // FIX: Verify Hashed Password
+        // Note: This requires users to have registered with the new register.php. 
+        // Old plain-text passwords will fail here.
+        if (password_verify($password, $row['password'])) {
+            $_SESSION['user_id'] = $row['user_id'];
+            $_SESSION['email'] = $row['email'];
+            $_SESSION['role'] = $row['role']; 
+            header("Location: index.php");
+            exit();
+        } else {
+            $error = "Invalid email or password";
+        }
     } else {
         $error = "Invalid email or password";
     }
+    $stmt->close();
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -41,7 +52,7 @@ if(isset($_POST['login'])) {
 <body>
     <div class="login-box">
         <h2>Client System</h2>
-        <?php if(isset($error)) { echo "<div class='error'>$error</div>"; } ?>
+        <?php if(isset($error)) { echo "<div class='error'>".htmlspecialchars($error)."</div>"; } ?>
         <form method="POST" action="">
             <input type="email" name="email" placeholder="Email" required>
             <input type="password" name="password" placeholder="Password" required>

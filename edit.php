@@ -2,15 +2,14 @@
 session_start();
 include 'db.php'; 
 
-// Check if user is logged in
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit();
 }
 
 $current_user_role = $_SESSION['role'] ?? 'visitor';
+$current_user_id = $_SESSION['user_id'];
 
-// Get ID safely
 if (!isset($_GET['id'])) {
     header("Location: index.php");
     exit();
@@ -18,7 +17,11 @@ if (!isset($_GET['id'])) {
 
 $id = intval($_GET['id']); 
 
-$result = $conn->query("SELECT * FROM clients WHERE client_id=$id");
+// FIX: Prepared Statement for reading data
+$stmt = $conn->prepare("SELECT * FROM clients WHERE client_id=?");
+$stmt->bind_param("i", $id);
+$stmt->execute();
+$result = $stmt->get_result();
 
 if ($result->num_rows == 0) {
     echo "Record not found.";
@@ -27,22 +30,22 @@ if ($result->num_rows == 0) {
 
 $row = $result->fetch_assoc();
 
+// FIX: ACCESS CONTROL / AUTHORIZATION CHECK
+// Only allow if User is Admin OR if the profile belongs to the logged-in user
+if ($current_user_role !== 'admin' && $row['user_id'] != $current_user_id) {
+    die("Unauthorized access. You can only edit your own profile.");
+}
+
 if(isset($_POST['update'])) {
-    // Sanitize inputs
-    $first_name = $conn->real_escape_string($_POST['first_name']);
-    $last_name = $conn->real_escape_string($_POST['last_name']);
-    $department = $conn->real_escape_string($_POST['department']);
+    $first_name = $_POST['first_name'];
+    $last_name = $_POST['last_name'];
+    $department = $_POST['department'];
+    $role = ($current_user_role === 'admin') ? $_POST['role'] : $row['role'];
+    $email = $_POST['email'];
+    $phone_number = $_POST['phone_number'];
+    $bio = $_POST['bio']; 
     
-    // Role Logic: Use posted value (if admin) or keep existing (if not)
-    $role = isset($_POST['role']) ? $conn->real_escape_string($_POST['role']) : $conn->real_escape_string($row['role']);
-    
-    $email = $conn->real_escape_string($_POST['email']);
-    $phone_number = $conn->real_escape_string($_POST['phone_number']);
-    $bio = $conn->real_escape_string($_POST['bio']); 
-    
-    // --- Image Upload Logic ---
-    $current_image_path = $row['profile_image'] ?? ''; 
-    $profile_image = $current_image_path;
+    $profile_image = $row['profile_image'] ?? ''; 
     
     if(isset($_FILES['profile_image']) && $_FILES['profile_image']['error'] == 0) {
         $target_dir = "uploads/";
@@ -58,40 +61,28 @@ if(isset($_POST['update'])) {
             $target_file = $target_dir . $new_filename;
             
             if (move_uploaded_file($_FILES["profile_image"]["tmp_name"], $target_file)) {
-                $profile_image = $conn->real_escape_string($target_file);
+                $profile_image = $target_file;
             }
         }
     }
     
-    // 1. Update CLIENTS table
-    $sql = "UPDATE clients SET 
-            first_name='$first_name', 
-            last_name='$last_name', 
-            department='$department', 
-            role='$role',
-            email='$email', 
-            phone_number='$phone_number',
-            profile_image='$profile_image',
-            bio='$bio'
-            WHERE client_id=$id";
+    // FIX: Prepared Statement for UPDATE
+    $update_stmt = $conn->prepare("UPDATE clients SET first_name=?, last_name=?, department=?, role=?, email=?, phone_number=?, profile_image=?, bio=? WHERE client_id=?");
+    $update_stmt->bind_param("ssssssssi", $first_name, $last_name, $department, $role, $email, $phone_number, $profile_image, $bio, $id);
 
-    if ($conn->query($sql) === TRUE) {
-        
-        // --- FIX: SYNC ROLE TO USERS TABLE ---
-        // We must also update the 'users' table, otherwise the login permission won't change.
+    if ($update_stmt->execute()) {
         $user_id_to_update = $row['user_id'];
         
         if(!empty($user_id_to_update)) {
-            // Update the role in the login table
-            $sql_user = "UPDATE users SET role='$role' WHERE user_id='$user_id_to_update'";
-            $conn->query($sql_user);
+            // FIX: Prepared Statement for User Role Update
+            $u_stmt = $conn->prepare("UPDATE users SET role=? WHERE user_id=?");
+            $u_stmt->bind_param("si", $role, $user_id_to_update);
+            $u_stmt->execute();
             
-            // Optional: If you changed your OWN role, update the session immediately
             if($user_id_to_update == $_SESSION['user_id']) {
                 $_SESSION['role'] = $role;
             }
         }
-
         header("Location: index.php");
         exit();
     } else {
@@ -99,7 +90,6 @@ if(isset($_POST['update'])) {
     }
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -116,24 +106,19 @@ if(isset($_POST['update'])) {
         input[type="submit"] { background-color: #f39c12; color: white; border: none; cursor: pointer; font-weight: bold; padding: 12px; font-size: 16px; margin-top: 10px; width: 100%; }
         input[type="submit"]:hover { background-color: #e67e22; }
         .cancel-btn { display: block; text-align: center; margin-top: 15px; color: #666; text-decoration: none; font-size: 14px; }
-        .cancel-btn:hover { color: #333; text-decoration: underline; }
-        .row { display: flex; gap: 15px; }
-        .col { flex: 1; }
-        
+        .row { display: flex; gap: 15px; } .col { flex: 1; }
         .profile-upload { text-align: center; margin-bottom: 20px; }
         .current-image { width: 100px; height: 100px; object-fit: cover; border-radius: 50%; border: 3px solid #eee; margin-bottom: 10px; }
         .no-image { width: 100px; height: 100px; background: #eee; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #aaa; font-weight: bold; margin-bottom: 10px; }
-        input[type="file"] { font-size: 12px; }
         .readonly-input { background-color: #e9ecef; cursor: not-allowed; color: #6c757d; }
     </style>
 </head>
 <body>
     <div class="form-container">
         <h2>Edit User Profile</h2>
-        <?php if(isset($error)) { echo "<p style='color:red; text-align:center;'>$error</p>"; } ?>
+        <?php if(isset($error)) { echo "<p style='color:red; text-align:center;'>".htmlspecialchars($error)."</p>"; } ?>
         
         <form method="POST" action="" enctype="multipart/form-data">
-            
             <div class="profile-upload">
                 <?php 
                 $img_path = $row['profile_image'] ?? null;
@@ -165,9 +150,7 @@ if(isset($_POST['update'])) {
                 </div>
                 <div class="col">
                     <label>Role</label>
-                    
                     <?php if($current_user_role === 'admin'): ?>
-                        <!-- Admin sees dropdown -->
                         <select name="role">
                             <?php 
                             $roles = ['visitor', 'client', 'admin']; 
@@ -178,11 +161,9 @@ if(isset($_POST['update'])) {
                             ?>
                         </select>
                     <?php else: ?>
-                        <!-- Others see read-only text -->
                         <input type="text" value="<?php echo htmlspecialchars($row['role']); ?>" class="readonly-input" readonly>
                         <input type="hidden" name="role" value="<?php echo htmlspecialchars($row['role']); ?>">
                     <?php endif; ?>
-
                 </div>
             </div>
 

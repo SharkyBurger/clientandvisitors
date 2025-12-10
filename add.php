@@ -2,58 +2,51 @@
 session_start();
 include 'db.php'; 
 
-// Check if user is logged in
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit();
 }
 
-// Get current user role
 $current_user_role = $_SESSION['role'] ?? 'visitor';
 
-// SECURITY: Visitors cannot add records
 if ($current_user_role == 'visitor') {
-    // Redirect visitors back to dashboard immediately
     header("Location: index.php");
     exit();
 }
 
-// Fetch current user details for display
 $current_user_id = $_SESSION['user_id'];
-$user_sql = "SELECT username, role FROM users WHERE user_id = '$current_user_id'";
-$user_result = $conn->query($user_sql);
+// FIX: Prepared Statement
+$stmt_u = $conn->prepare("SELECT username, role FROM users WHERE user_id = ?");
+$stmt_u->bind_param("i", $current_user_id);
+$stmt_u->execute();
+$user_result = $stmt_u->get_result();
 $current_user_info = $user_result->fetch_assoc();
 
 if(isset($_POST['submit'])) {
-    $first_name = $conn->real_escape_string($_POST['first_name']);
-    $last_name = $conn->real_escape_string($_POST['last_name']);
-    $department = $conn->real_escape_string($_POST['department']);
+    $first_name = $_POST['first_name'];
+    $last_name = $_POST['last_name'];
+    $department = $_POST['department'];
     
-    // Role Logic for Insertion
-    // If Admin, allow them to set whatever role they picked
     if ($current_user_role == 'admin') {
-        $role = $conn->real_escape_string($_POST['role']);
+        $role = $_POST['role'];
     } else {
-        // If Client, force the role to be 'Client' (or 'Visitor' if they selected it), 
-        // but NEVER 'Admin'.
-        $selected_role = $conn->real_escape_string($_POST['role']);
+        $selected_role = $_POST['role'];
         if(strtolower($selected_role) == 'admin') {
-            $role = 'Client'; // Fallback if they try to bypass
+            $role = 'Client'; 
         } else {
             $role = $selected_role;
         }
     }
     
-    $email = $conn->real_escape_string($_POST['email']);
-    $phone_number = $conn->real_escape_string($_POST['phone_number']);
-    
-    // Creator ID
+    $email = $_POST['email'];
+    $phone_number = $_POST['phone_number'];
     $user_id = $_SESSION['user_id']; 
 
-    $sql = "INSERT INTO clients (first_name, last_name, department, role, email, phone_number, user_id) 
-            VALUES ('$first_name', '$last_name', '$department', '$role', '$email', '$phone_number', '$user_id')";
+    // FIX: Prepared Statement for INSERT
+    $stmt = $conn->prepare("INSERT INTO clients (first_name, last_name, department, role, email, phone_number, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("ssssssi", $first_name, $last_name, $department, $role, $email, $phone_number, $user_id);
     
-    if ($conn->query($sql) === TRUE) {
+    if ($stmt->execute()) {
         header("location: index.php");
         exit();
     } else {
@@ -61,7 +54,6 @@ if(isset($_POST['submit'])) {
     }
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -78,26 +70,17 @@ if(isset($_POST['submit'])) {
         input[type="submit"] { background-color: #28a745; color: white; border: none; cursor: pointer; font-weight: bold; padding: 12px; font-size: 16px; margin-top: 10px; width: 100%; }
         input[type="submit"]:hover { background-color: #218838; }
         .cancel-btn { display: block; text-align: center; margin-top: 15px; color: #666; text-decoration: none; font-size: 14px; }
-        .cancel-btn:hover { color: #333; text-decoration: underline; }
-        .row { display: flex; gap: 10px; }
-        .col { flex: 1; }
-        
+        .row { display: flex; gap: 10px; } .col { flex: 1; }
         .user-notice { background-color: #e3f2fd; color: #0d47a1; padding: 10px; border-radius: 4px; font-size: 13px; margin-bottom: 20px; border-left: 4px solid #2196f3; }
     </style>
 </head>
 <body>
     <div class="form-container">
         <h2>Add New Record</h2>
-        
-        <!-- Attribution Notice -->
         <div class="user-notice">
-            Adding record as: 
-            <strong><?php echo htmlspecialchars($current_user_info['username'] ?? 'Unknown'); ?></strong> 
-            (<?php echo ucfirst($current_user_role); ?>)
+            Adding record as: <strong><?php echo htmlspecialchars($current_user_info['username'] ?? 'Unknown'); ?></strong> (<?php echo ucfirst($current_user_role); ?>)
         </div>
-
-        <?php if(isset($error)) { echo "<p style='color:red; text-align:center;'>$error</p>"; } ?>
-        
+        <?php if(isset($error)) { echo "<p style='color:red; text-align:center;'>".htmlspecialchars($error)."</p>"; } ?>
         <form method="POST" action="">
             <div class="row">
                 <div class="col">
@@ -109,7 +92,6 @@ if(isset($_POST['submit'])) {
                     <input type="text" name="last_name" required>
                 </div>
             </div>
-
             <div class="row">
                 <div class="col">
                     <label>Department</label>
@@ -117,29 +99,22 @@ if(isset($_POST['submit'])) {
                 </div>
                 <div class="col">
                     <label>Role</label>
-                    
                     <select name="role">
                         <?php if ($current_user_role == 'admin'): ?>
-                            <!-- Admins see all options -->
                             <option value="Admin">Admin</option>
                             <option value="Client">Client</option>
                             <option value="Visitor">Visitor</option>
                         <?php else: ?>
-                            <!-- Clients only see Client/Visitor options (Admin HIDDEN) -->
                             <option value="Client">Client</option>
                             <option value="Visitor">Visitor</option>
                         <?php endif; ?>
                     </select>
-                    
                 </div>
             </div>
-
             <label>Email Address</label>
             <input type="email" name="email" placeholder="name@company.com">
-
             <label>Phone Number</label>
             <input type="text" name="phone_number" placeholder="+1 234 567 8900">
-
             <input type="submit" name="submit" value="Save Record">
             <a href="index.php" class="cancel-btn">Cancel</a>
         </form>
